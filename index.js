@@ -27,6 +27,7 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
+    const userCollection=client.db("SummerCampSchoolDB").collection("user")
     const classesCollection = client.db("SummerCampSchoolDB").collection("classes");
     const instructorsCollection=client.db("SummerCampSchoolDB").collection("instructors")
     const classCollection=client.db("SummerCampSchoolDB").collection("bookedClass")
@@ -40,12 +41,48 @@ async function run() {
     //   res.send({token})
     // });
 
+//user collection
+app.get("/user",async(req,res)=>{
+  const result=await userCollection.find().toArray()
+  res.send(result)
+})
+app.post("/user", async (req, res) => {
+  const user = req.body;
+  console.log(user)
+  const query = { email: user.email };
+  const existingUsers = await userCollection.findOne(query);
+  console.log("existing users", existingUsers);
+  if (existingUsers) {
+    return res.json({ message: "user already exists" });
+  }
+  const result = await userCollection.insertOne(user);
+  res.send(result);
+});
 
+app.get("/user/admin/:email",async(req,res)=>{
+  const email=req.params.email;
+  console.log(email)
+  const query={email:email}
+  const user=await userCollection.findOne(query)
+  const result={admin: user?.role==="admin"}
+  res.send(result)
+})
+app.get("/user/instructor/:email",async(req,res)=>{
+  const email=req.params.email;
+  console.log(email)
+  const query={email:email}
+  const user=await userCollection.findOne(query)
+  const result={instructor: user?.role==="admin"}
+  res.send(result)
+})
+//classes collection
 app.get("/classes",async(req,res)=>{
   const result=await classesCollection.find().toArray()
   res.send(result)
     
 })
+
+//instructors collection
 app.get("/instructors", async(req,res)=>{
   const result=await instructorsCollection.find().toArray()
   res.send(result)
@@ -87,6 +124,7 @@ app.post("/create-payment-intent",async(req,res)=>{
 })
 
 //payment related api
+
 app.post("/payments",async (req, res) => {
   const payment = req.body;
   console.log(payment);
@@ -107,6 +145,11 @@ app.post("/payments",async (req, res) => {
     res.status(500).send({ error: "Failed to update available seats" });
   }
 });
+//enrolled Classes
+app.get("/enrolledClasses",async(req,res)=>{
+  const result=await paymentCollection.find().toArray()
+  res.send(result)
+})
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
