@@ -26,7 +26,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     const userCollection=client.db("SummerCampSchoolDB").collection("user")
     const classesCollection = client.db("SummerCampSchoolDB").collection("classes");
     const instructorsCollection=client.db("SummerCampSchoolDB").collection("instructors")
@@ -115,6 +115,11 @@ app.get("/classes",async(req,res)=>{
   res.send(result)
     
 })
+app.post("/classes", async(req,res)=>{
+  const newClass=req.body
+  const result=await classesCollection.insertOne(newClass)
+  res.send(result)
+})
 
 //instructors collection
 app.get("/instructors", async(req,res)=>{
@@ -158,32 +163,48 @@ app.post("/create-payment-intent",async(req,res)=>{
 })
 
 //payment related api
+app.get("/payments", async (req, res) => {
+  const email = req.query.email; 
+  console.log(email);
+  const query = { email: email };
+  const result = await paymentCollection.find(query).toArray();
+  res.send(result);
+});
 
-app.post("/payments",async (req, res) => {
+
+app.post("/payments", async (req, res) => {
   const payment = req.body;
   console.log(payment);
   const insertResult = await paymentCollection.insertOne(payment);
-  const query = { _id: { $in: payment.selectedClass.map((id) => new ObjectId(id)) } };
+
+  const classId = payment.id; // Get the specific class ID
+  const query = { _id: new ObjectId(classId) };
   const deleteResult = await classCollection.deleteOne(query);
 
   // Update available seats for the booked class
-  const updateQuery = { _id: { $in: payment.classes.map((id) => new ObjectId(id)) } };
-  const classUpdateResult = await classesCollection.updateMany(
-    updateQuery,
-    { $inc: { availableSeats: -1 } }
-  );
+  if (payment.classes && payment.classes.length > 0) {
+    const updateQuery = { _id: { $in: payment.classes.map((id) => new ObjectId(id)) } };
+    const classUpdateResult = await classesCollection.updateMany(
+      updateQuery,
+      { $inc: { availableSeats: -1 } }
+    );
 
-  if (classUpdateResult.modifiedCount === payment.classes.length) {
-    res.send({ insertResult, deleteResult });
-  } else {
-    res.status(500).send({ error: "Failed to update available seats" });
+    if (classUpdateResult.modifiedCount !== payment.classes.length) {
+      res.status(500).send({ error: "Failed to update available seats" });
+      return;
+    }
   }
+
+  res.send({ insertResult, deleteResult});
 });
-//enrolled Classes
-app.get("/enrolledClasses",async(req,res)=>{
-  const result=await paymentCollection.find().toArray()
-  res.send(result)
-})
+// Assuming you have a MongoDB collection named 'payments'
+
+app.delete("/payments/:id", async (req, res) => {
+  const id = req.params.id;
+  const query = { _id: new ObjectId(id) };
+  const result = await paymentCollection.deleteOne(query);
+  res.send(result);
+});
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
@@ -202,3 +223,6 @@ res.send("The summer camp school server is running")
 app.listen(port, ()=>{
     console.log(`The summer camp school server is running on port: ${port}`)
 })
+
+// const insertResult = await paymentCollection.insertOne(payment);
+// const query = { _id: new ObjectId(payment.classId) }; // Access the specific class ID directly
