@@ -1,7 +1,6 @@
 const express=require("express")
 const app=express()
 const cors=require("cors")
-// const jwt = require('jsonwebtoken')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 require("dotenv").config()
@@ -33,13 +32,18 @@ async function run() {
     const classCollection=client.db("SummerCampSchoolDB").collection("bookedClass")
     const paymentCollection=client.db("SummerCampSchoolDB").collection("payments")
 
-
-    // app.post("/jwt", (req, res) => {
-    //   const user = req.body;
-    //   console.log(user)
-    //   const token=jwt.sign(user,process.env.ACCESS_TOKEN_SECRET,{expiresIn: '1h'})
-    //   res.send({token})
-    // });
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.body.email; // Assuming the email is passed in the request body
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      if (user?.role !== "admin") {
+        res.status(403).send({ error: true, message: "Forbidden" });
+        return;
+      }
+    
+      next();
+    };
+    
 
 //user collection
 app.get("/user",async(req,res)=>{
@@ -97,6 +101,7 @@ app.get("/user/instructor/:email",async(req,res)=>{
   console.log(result)
   res.send(result)
 })
+
 app.patch("/user/instructor/:id", async (req, res) => {
   const id = req.params.id;
   const filter = { _id: new ObjectId(id) };
@@ -110,16 +115,40 @@ app.patch("/user/instructor/:id", async (req, res) => {
 });
 
 //classes collection
-app.get("/classes",async(req,res)=>{
+app.get("/classes",verifyAdmin,async(req,res)=>{
   const result=await classesCollection.find().toArray()
   res.send(result)
     
 })
+
 app.post("/classes", async(req,res)=>{
   const newClass=req.body
   const result=await classesCollection.insertOne(newClass)
   res.send(result)
 })
+// Assuming you have a route set up for updating a class item
+app.put("/classes/:id", async (req, res) => {
+  const id = req.params.id; // Get the item ID from the request params
+  console.log("Received ID:", id);
+  const status = req.body.status; // Get the new status from the request body
+
+  try {
+    const updatedItem = await classesCollection.findOneAndUpdate(
+      { _id: id },
+      { $set: { status:status} },
+      { returnOriginal: false }
+    );
+    if (!updatedItem) {
+      return res.status(404).json({ error: "Class item not found" });
+    }
+console.log(updatedItem)
+    res.json(updatedItem); // Return the updated class item in the response
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 
 //instructors collection
 app.get("/instructors", async(req,res)=>{
