@@ -2,10 +2,12 @@ const express=require("express")
 const app=express()
 const cors=require("cors")
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-
 require("dotenv").config()
 const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY)
+
+console.log(stripe)
 const port=process.env.PORT || 4000;
+
 
 //middleware
 app.use(cors())
@@ -32,17 +34,6 @@ async function run() {
     const classCollection=client.db("SummerCampSchoolDB").collection("bookedClass")
     const paymentCollection=client.db("SummerCampSchoolDB").collection("payments")
 
-    const verifyAdmin = async (req, res, next) => {
-      const email = req.body.email; // Assuming the email is passed in the request body
-      const query = { email: email };
-      const user = await userCollection.findOne(query);
-      if (user?.role !== "admin") {
-        res.status(403).send({ error: true, message: "Forbidden" });
-        return;
-      }
-    
-      next();
-    };
     
 
 //user collection
@@ -115,11 +106,18 @@ app.patch("/user/instructor/:id", async (req, res) => {
 });
 
 //classes collection
-app.get("/classes",verifyAdmin,async(req,res)=>{
+app.get("/classes", async(req,res)=>{
   const result=await classesCollection.find().toArray()
   res.send(result)
     
 })
+app.get("/classes", async (req, res) => {
+  const email = req.query.email;
+  console.log(email);
+  const query = { email: email };
+  const result = await classesCollection.find(query).toArray();
+  res.send(result);
+});
 
 app.post("/classes", async(req,res)=>{
   const newClass=req.body
@@ -128,26 +126,55 @@ app.post("/classes", async(req,res)=>{
 })
 // Assuming you have a route set up for updating a class item
 app.put("/classes/:id", async (req, res) => {
-  const id = req.params.id; // Get the item ID from the request params
-  console.log("Received ID:", id);
-  const status = req.body.status; // Get the new status from the request body
+  const id = req.params.id;
+  const updatedClass = req.body;
+  const filter = { _id: new ObjectId(id) };
+  const options = { upsert: true };
+  const updateClass = {
+    $set: {
+      name: updatedClass.name,
+      instructorName: updatedClass.instructorName,
+      email: updatedClass.email,
+      availableSeats: updatedClass.availableSeats,
+      price: updatedClass.price,
+      image: updatedClass.image,
+      instructorImage: updatedClass.instructorImage,
+      availableStudents: updatedClass.availableStudents
+    },
+  };
+  const result = await classesCollection.updateMany(
+    filter,
+    updateClass,
+    options
+  );
+  res.send(result);
+});
 
+app.patch("/classes/:id", async (req, res) => {
   try {
-    const updatedItem = await classesCollection.findOneAndUpdate(
-      { _id: id },
-      { $set: { status:status} },
-      { returnOriginal: false }
-    );
-    if (!updatedItem) {
-      return res.status(404).json({ error: "Class item not found" });
-    }
-console.log(updatedItem)
-    res.json(updatedItem); // Return the updated class item in the response
+    const id = req.params.id;
+    console.log("Received ID:", id);
+
+    const updatedClass = req.body;
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = {
+      $set: {
+        status: updatedClass.status,
+        feedback: updatedClass.feedback, // Add the feedback field to the update document
+      },
+    };
+    console.log(updatedClass.status);
+    const result = await classesCollection.updateOne(filter, updateDoc);
+    res.send(result);
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error(error);
+    res
+      .status(500)
+      .send("An error occurred while updating the class status.");
   }
 });
+
+
 
 
 //instructors collection
@@ -180,6 +207,7 @@ app.delete("/bookedClass/:id", async (req, res) => {
 //create-payment-intent
 app.post("/create-payment-intent",async(req,res)=>{
   const {price}= req.body
+  console.log(price)
   const amount=parseInt(price*100)
   const paymentIntent = await stripe.paymentIntents.create({
     amount: amount,
@@ -192,6 +220,12 @@ app.post("/create-payment-intent",async(req,res)=>{
 })
 
 //payment related api
+app.get("/payments", async(req,res)=>{
+  const result=await paymentCollection.find().toArray()
+  res.send(result)
+    
+}) 
+
 app.get("/payments", async (req, res) => {
   const email = req.query.email; 
   console.log(email);
@@ -205,26 +239,19 @@ app.post("/payments", async (req, res) => {
   const payment = req.body;
   console.log(payment);
   const insertResult = await paymentCollection.insertOne(payment);
-
   const classId = payment.id; // Get the specific class ID
   const query = { _id: new ObjectId(classId) };
   const deleteResult = await classCollection.deleteOne(query);
 
-  // Update available seats for the booked class
-  if (payment.classes && payment.classes.length > 0) {
-    const updateQuery = { _id: { $in: payment.classes.map((id) => new ObjectId(id)) } };
-    const classUpdateResult = await classesCollection.updateMany(
-      updateQuery,
-      { $inc: { availableSeats: -1 } }
-    );
-
-    if (classUpdateResult.modifiedCount !== payment.classes.length) {
-      res.status(500).send({ error: "Failed to update available seats" });
-      return;
+  const updateDoc={
+    $set:{
+      availableSeats: payment.availableSeats,
+      availableStudents:payment.availableStudents +1
     }
   }
+  const updateResult=await classesCollection.updateOne(query,updateDoc)
 
-  res.send({ insertResult, deleteResult});
+  res.send({ insertResult, deleteResult,updateResult});
 });
 // Assuming you have a MongoDB collection named 'payments'
 
@@ -247,7 +274,7 @@ run().catch(console.dir);
 
 
 app.get("/",(req,res)=>{
-res.send("The summer camp school server is running")
+res.send({clientkey:process.env.PAYMENT_SECRET_KEY})
 })
 app.listen(port, ()=>{
     console.log(`The summer camp school server is running on port: ${port}`)
